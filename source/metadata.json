@@ -1,0 +1,6 @@
+{
+  "name": "Audire",
+  "description": "Un reproductor de audiolibros de larga duración y alta precisión con auto-guardado, gestión fuera de línea y un diseño limpio y moderno.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

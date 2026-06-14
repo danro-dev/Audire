@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Glowing or ambient circle accent (subtle gold ring) -->
+    <path
+        android:strokeColor="#22FFE5A8"
+        android:strokeWidth="1.5"
+        android:pathData="M 54 20 A 34 34 0 1 1 53.99 20" />
+
+    <!-- Headphone Band -->
+    <path
+        android:strokeColor="#FFE5A8"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:pathData="M 33 58 A 21 21 0 0 1 75 58" />
+
+    <!-- Headphone Left Ear Cup -->
+    <path
+        android:fillColor="#E5A823"
+        android:pathData="M 26 48 C 26 44 31 44 31 48 L 31 68 C 31 72 26 72 26 68 Z" />
+    <path
+         android:fillColor="#FFE5A8"
+         android:pathData="M 28 50 C 28 47 31 47 31 50 L 31 66 C 31 69 28 69 28 66 Z" />
+
+    <!-- Headphone Right Ear Cup -->
+    <path
+        android:fillColor="#E5A823"
+        android:pathData="M 82 48 C 82 44 77 44 77 48 L 77 68 C 77 72 82 72 82 68 Z" />
+    <path
+         android:fillColor="#FFE5A8"
+         android:pathData="M 80 50 C 80 47 77 47 77 50 L 77 66 C 77 69 80 69 80 66 Z" />
+
+    <!-- Central Letter "A" Styled as an elegant soundwave prism -->
+    <!-- Left leg of A -->
+    <path
+        android:fillColor="#FFE5A8"
+        android:pathData="M 54 34 L 43 65 L 48 65 L 54 44 Z" />
+    <!-- Right leg of A -->
+    <path
+        android:fillColor="#FFE5A8"
+        android:pathData="M 54 34 L 65 65 L 60 65 L 54 44 Z" />
+    <!-- Crossbar of A -->
+    <path
+        android:fillColor="#E5A823"
+        android:pathData="M 48 54 L 60 54 L 60 57 L 48 57 Z" />
+
+    <!-- Modern sound lines at the bottom for "Audire" theme -->
+    <path
+        android:fillColor="#FFE5A8"
+        android:pathData="M 42 74 L 44 74 L 44 78 L 42 78 Z" />
+    <path
+        android:fillColor="#FFE5A8"
+        android:pathData="M 47 72 L 49 72 L 49 80 L 47 80 Z" />
+    <path
+        android:fillColor="#FCB823"
+        android:pathData="M 53 70 L 55 70 L 55 82 L 53 82 Z" />
+    <path
+        android:fillColor="#FFE5A8"
+        android:pathData="M 59 72 L 61 72 L 61 80 L 59 80 Z" />
+    <path
+        android:fillColor="#FFE5A8"
+        android:pathData="M 64 74 L 66 74 L 66 78 L 64 78 Z" />
+
+</vector>
