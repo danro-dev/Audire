@@ -23,22 +23,13 @@ retrofit = "2.11.0"
 converterMoshi = "2.11.0"
 kotlinxCoroutinesAndroid = "1.9.0"
 kotlinxCoroutinesCore = "1.9.0"
-accompanistPermissions = "0.37.0"
-playServicesLocation = "21.3.0"
-cameraCamera2 = "1.4.0"
-cameraLifecycle = "1.4.0"
-cameraView = "1.4.0"
-cameraCore = "1.4.0"
 loggingInterceptor = "4.12.0"
 okhttp = "4.12.0"
 moshiKotlin = "1.15.2"
 moshiKotlinCodegen = "1.15.2"
-datastorePreferences = "1.1.1"
 robolectric = "4.14.1"
 roborazzi = "1.36.0"
-firebaseBom = "33.5.1"
 documentfile = "1.0.1"
-secretsGradlePlugin = "2.0.1"
 media = "1.7.0"
 pdfboxAndroid = "2.0.27.0"
 
@@ -73,23 +64,14 @@ retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = 
 converter-moshi = { group = "com.squareup.retrofit2", name = "converter-moshi", version.ref = "converterMoshi" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "kotlinxCoroutinesAndroid" }
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "kotlinxCoroutinesCore" }
-accompanist-permissions = { group = "com.google.accompanist", name = "accompanist-permissions", version.ref = "accompanistPermissions" }
-play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
-androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "cameraCamera2" }
-androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "cameraLifecycle" }
-androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "cameraView" }
-androidx-camera-core = { group = "androidx.camera", name = "camera-core", version.ref = "cameraCore" }
 logging-interceptor = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "loggingInterceptor" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 moshi-kotlin = { group = "com.squareup.moshi", name = "moshi-kotlin", version.ref = "moshiKotlin" }
 moshi-kotlin-codegen = { group = "com.squareup.moshi", name = "moshi-kotlin-codegen", version.ref = "moshiKotlinCodegen" }
-androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastorePreferences" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 roborazzi = { group = "io.github.takahirom.roborazzi", name = "roborazzi", version.ref = "roborazzi" }
 roborazzi-compose = { group = "io.github.takahirom.roborazzi", name = "roborazzi-compose", version.ref = "roborazzi" }
 roborazzi-junit-rule = { group = "io.github.takahirom.roborazzi", name = "roborazzi-junit-rule", version.ref = "roborazzi" }
-firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
-firebase-ai = { group = "com.google.firebase", name = "firebase-ai" }
 androidx-documentfile = { group = "androidx.documentfile", name = "documentfile", version.ref = "documentfile" }
 androidx-media = { group = "androidx.media", name = "media", version.ref = "media" }
 pdfbox-android = { group = "com.tom-roush", name = "pdfbox-android", version.ref = "pdfboxAndroid" }
@@ -99,4 +81,4 @@ android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 google-devtools-ksp = { id = "com.google.devtools.ksp", version.ref = "googleDevtoolsKsp" }
 roborazzi = { id = "io.github.takahirom.roborazzi", version.ref = "roborazzi" }
-secrets = { id = "com.google.android.libraries.mapsplatform.secrets-gradle-plugin", version.ref = "secretsGradlePlugin" }
+
