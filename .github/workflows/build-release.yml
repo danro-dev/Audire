@@ -32,41 +32,41 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Create Mock Keystore for CI Release
+      - name: Create CI Release Keystore
         working-directory: source
         run: |
           keytool -genkey -v -keystore my-upload-key.jks -alias upload -keyalg RSA -keysize 2048 -validity 10000 -storepass audire123 -keypass audire123 -dname "CN=Audire, OU=App, O=Audire, L=Madrid, S=Madrid, C=ES"
 
-      - name: Build Release APK
+      - name: Build Release and Debug APKs
         working-directory: source
         env:
-          KEYSTORE_PATH: my-upload-key.jks
+          KEYSTORE_PATH: ${{ github.workspace }}/source/my-upload-key.jks
           STORE_PASSWORD: audire123
+          KEY_ALIAS: upload
           KEY_PASSWORD: audire123
         run: |
-          gradle assembleRelease --no-daemon
+          gradle assembleRelease assembleDebug --no-daemon
 
-      - name: Locate and Rename APK
+      - name: Collect APK Files
         run: |
           mkdir -p build_output
-          find source/app/build/outputs/apk -name "*.apk" -exec cp {} build_output/ \;
-          cd build_output
-          for f in *.apk; do
-            mv "$f" "Audire-v1.0.0-${f}"
-          done
-          ls -la
+          find source/app/build/outputs/apk/release -name "*.apk" -exec cp {} build_output/Audire-v1.0.0-release.apk \;
+          find source/app/build/outputs/apk/debug -name "*.apk" -exec cp {} build_output/Audire-v1.0.0-debug.apk \;
+          ls -la build_output/
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Audire-APK
+          name: Audire-APKs
           path: build_output/*.apk
 
-      - name: Create GitHub Release (On Tag)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Create or Update GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
           files: build_output/*.apk
+          tag_name: ${{ github.ref_name }}
+          name: Audire Release ${{ github.ref_name }}
           draft: false
           prerelease: false
           generate_release_notes: true
