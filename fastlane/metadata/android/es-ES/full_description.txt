@@ -1,0 +1,32 @@
+Audire es un reproductor de audiolibros y lector de documentos moderno, ligero y enfocado en la privacidad para Android. Reproduce tu colección personal de audio y lee archivos EPUB o PDF totalmente offline — sin suscripciones, sin servidores en la nube y sin rastreo.
+
+🎧 REPRODUCTOR DE AUDIOLIBROS:
+• Formatos compatibles: MP3, M4B, M4A, AAC, FLAC, WAV, OGG y OPUS
+• Reproducción en segundo plano con notificación Android MediaStyle y controles en pantalla de bloqueo
+• Velocidad de reproducción ajustable de 0.5x hasta 3.0x
+• Regla de progreso inmutable: tu posición nunca retrocede por fallos o reinicios
+• Guardado automático de progreso cada 5s, 10s o 30s
+
+📖 LECTOR DE E-BOOKS Y DOCUMENTOS:
+• Lector EPUB con paginación fluida, tamaño de letra personalizable y modo nocturno
+• Lector PDF con renderizado acelerado por hardware y zoom táctil
+• Lector de cómics y manga compatible con archivos CBZ, CBR y ZIP
+• Narración por voz (Text-to-Speech / TTS) con control de velocidad en tiempo real
+
+🗂️ GESTIÓN DE BIBLIOTECA Y CARPETAS:
+• Vista de estantería 3D, lista detallada y explorador de carpetas físicas con migas de pan
+• Selector de almacenamiento seguro (Scoped Storage): elige tus carpetas sin dar permisos innecesarios
+• Extracción automática de portadas y metadatos ID3, MP4 Covr, FLAC y PDF
+• Generador procedural de portadas 3D en relieve cuando no hay imagen disponible
+• Metadatos Sidecar (.audire.meta): guarda tu progreso y citas junto a tus archivos para portabilidad total
+
+🌟 HÁBITOS, CITAS Y GAMIFICACIÓN:
+• Base de datos de 300 citas literarias célebres en español e inglés
+• Libreta de citas y marcadores con número de página
+• Más de 60 logros desbloqueables en 7 categorías (Rachas, Tiempo, Biblioteca, Hábitos, Maestría)
+• Registro de tiempo diario y gráfico semanal de progreso
+
+🎨 PERSONALIZACIÓN Y ACCESSIBILITY:
+• 7 temas Material Design 3 (Oscuro, Claro, Melocotón, Abismo Marino, Sabio Místico, Pizarra Cósmica y Paleta Hexagonal personalizada)
+• Cambio instantáneo de idioma: Español e Inglés
+• 100% Software Libre y de Código Abierto (FOSS) bajo licencia MIT

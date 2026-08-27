@@ -1,0 +1,72 @@
+name: Build & Release APK
+
+on:
+  push:
+    branches:
+      - master
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Create Mock Keystore for CI Release
+        working-directory: source
+        run: |
+          keytool -genkey -v -keystore my-upload-key.jks -alias upload -keyalg RSA -keysize 2048 -validity 10000 -storepass audire123 -keypass audire123 -dname "CN=Audire, OU=App, O=Audire, L=Madrid, S=Madrid, C=ES"
+
+      - name: Build Release APK
+        working-directory: source
+        env:
+          KEYSTORE_PATH: my-upload-key.jks
+          STORE_PASSWORD: audire123
+          KEY_PASSWORD: audire123
+        run: |
+          gradle assembleRelease --no-daemon
+
+      - name: Locate and Rename APK
+        run: |
+          mkdir -p build_output
+          find source/app/build/outputs/apk -name "*.apk" -exec cp {} build_output/ \;
+          cd build_output
+          for f in *.apk; do
+            mv "$f" "Audire-v1.0.0-${f}"
+          done
+          ls -la
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Audire-APK
+          path: build_output/*.apk
+
+      - name: Create GitHub Release (On Tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build_output/*.apk
+          draft: false
+          prerelease: false
+          generate_release_notes: true

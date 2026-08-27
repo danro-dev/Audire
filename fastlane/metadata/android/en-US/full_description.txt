@@ -1,0 +1,32 @@
+Audire is a modern, lightweight, privacy-first audiobook player and document reader designed for Android. Play your personal audio collection and read EPUB or PDF files completely offline — no subscriptions, no cloud servers, and zero data tracking.
+
+🎧 AUDIOBOOK PLAYER:
+• Format support: MP3, M4B, M4A, AAC, FLAC, WAV, OGG, and OPUS
+• Background playback with Android MediaStyle notification and lock screen controls
+• Playback speed cycle from 0.5x up to 3.0x
+• Immutable progress rule: your position never regresses on crashes or reboots
+• Auto-save playback position every 5s, 10s, or 30s
+
+📖 E-BOOK & DOCUMENT READER:
+• EPUB reader with smooth paginated reading, adjustable font size, and night mode
+• PDF document reader with hardware-accelerated rendering and zoom
+• Comic & Manga reader supporting CBZ, CBR, and ZIP archives
+• Text-to-Speech (TTS) narration with real-time speed control
+
+🗂️ LIBRARY & DIRECTORY MANAGEMENT:
+• 3D Bookstore shelf view, detailed list view, and physical folder tree explorer
+• Scoped Storage picker: select your own local folders without giving full disk access
+• Automatic metadata and cover extraction for ID3, MP4 Covr, FLAC, and PDF
+• Procedural 3D embossed book cover generation when no artwork is present
+• Companion Sidecar Metadata (.audire.meta): save your progress and quotes directly next to your files for full portability
+
+🌟 HABITS, QUOTES & GAMIFICATION:
+• 300 curated literary quotes from historical authors in Spanish & English
+• Quote bookmarking tool with page references
+• 60+ achievements across 7 categories (Streaks, Time, Library, Habits, Mastery)
+• Daily listening goal tracking and 7-day progress charts
+
+🎨 PERSONALIZATION & ACCESSIBILITY:
+• 7 Material Design 3 theme presets (Dark, Light, Peach Sunset, Abyss Marine, Sage Mystic, Cosmic Slate, and Custom Hex Palette)
+• Instant bilingual switching: English and Spanish
+• 100% Free and Open Source (FOSS) under MIT License

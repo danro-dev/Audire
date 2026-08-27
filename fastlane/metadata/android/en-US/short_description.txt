@@ -1,0 +1,1 @@
+Privacy-first, offline audiobook player and e-book reader with TTS.

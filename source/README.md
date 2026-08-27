@@ -1,21 +1,95 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# Audire — Android Source Code & Build Guide
 
-# Run and deploy your AI Studio app
+This directory contains the complete Android source code for **Audire**, built with Kotlin, Jetpack Compose, Material 3, and Room ORM.
 
-This contains everything you need to run your app locally.
+---
 
-View your app in AI Studio: https://ai.studio/apps/44f7245d-7199-4b0b-a5ba-15995c6018ae
+## 🛠️ Build Requirements
 
-## Run Locally
+- **Android Studio:** Ladybug / Hedgehog or newer
+- **JDK:** OpenJDK 17 or 11
+- **Android SDK:**
+  - compileSdk: 36 (minorApiLevel = 1)
+  - 	argetSdk: 36
+  - minSdk: 24 (Android 7.0 Nougat)
+- **Gradle Version:** Gradle 8.13+ (configured via Gradle Wrapper)
 
-**Prerequisites:**  [Android Studio](https://developer.android.com/studio)
+---
 
+## 🚀 Building From Command Line
 
-1. Open Android Studio
-2. Select **Open** and choose the directory containing this project
-3. Allow Android Studio to fix any incompatibilities as it imports the project.
-4. Create a file named `.env` in the project directory and set `GEMINI_API_KEY` in that file to your Gemini API key (see `.env.example` for an example)
-5. Remove this line from the app's `build.gradle.kts` file: `signingConfig = signingConfigs.getByName("debugConfig")`
-6. Run the app on an emulator or physical device
+### 1. Build Debug APK
+`ash
+./gradlew assembleDebug
+`
+The resulting APK will be placed in pp/build/outputs/apk/debug/app-debug.apk.
+
+### 2. Build Release APK (Unsigned / Signed)
+`ash
+./gradlew assembleRelease
+`
+
+To sign the release build, provide the following environment variables:
+`ash
+export KEYSTORE_PATH="/path/to/your/keystore.jks"
+export STORE_PASSWORD="your-keystore-password"
+export KEY_PASSWORD="your-key-password"
+`
+
+### 3. Run Unit Tests & Lint
+`ash
+./gradlew test
+./gradlew lint
+`
+
+### 4. Run Screenshot Tests (Roborazzi)
+`ash
+./gradlew recordRoborazziDebug
+./gradlew verifyRoborazziDebug
+`
+
+---
+
+## 📂 Source Code Structure
+
+`
+app/src/main/
+├── AndroidManifest.xml
+├── java/com/example/
+│   ├── MainActivity.kt               # Jetpack Compose single-activity & UI screens
+│   ├── AudiobookPlaybackService.kt   # Foreground Media Service
+│   ├── PlaybackController.kt         # Singleton bridge between Service and ViewModel
+│   ├── LanguageManager.kt            # Runtime dictionary i18n (ES / EN)
+│   │
+│   ├── data/
+│   │   ├── Audiobook.kt              # Room @Entity: audiobooks & documents
+│   │   ├── ScanDirectory.kt          # Room @Entity: Scoped Storage tree URIs
+│   │   ├── ListeningLog.kt           # Room @Entity: daily listening records
+│   │   ├── BookQuote.kt              # Room @Entity: book quotes and bookmarks
+│   │   ├── AudiobookDao.kt           # Room @Dao: CRUD operations & queries
+│   │   ├── AudiobookDatabase.kt      # Room @Database singleton (v4)
+│   │   ├── AudiobookRepository.kt    # Repository with immutable progress rule
+│   │   ├── SidecarMetadataManager.kt # JSON companion .audire.meta read/write
+│   │   ├── ThumbnailManager.kt       # ID3/MP4/FLAC/PDF extraction & procedural cover engine
+│   │   ├── FolderHierarchy.kt        # Physical directory tree & breadcrumbs builder
+│   │   ├── Achievement.kt            # 60+ achievements & progression manager
+│   │   └── DailyQuotesDatabase.kt    # 300 curated literary quotes
+│   │
+│   └── ui/
+│       ├── viewmodel/
+│       │   └── AudiobookViewModel.kt # StateFlow & MVI/MVVM logic
+│       └── theme/
+│           ├── Color.kt              # Material 3 color tokens
+│           ├── Theme.kt              # 7 color schemes & dynamic palette builder
+│           └── Type.kt               # Typography scale
+│
+└── res/                              # Drawables, mipmaps, XML configs
+`
+
+---
+
+## 🔒 Privacy & Clean Code Standards
+
+- **Zero Trackers:** Do not add proprietary tracking, ad networks, or analytics libraries.
+- **Scoped Storage:** Always use Android's DocumentFile and ContentResolver with persistable URI permissions.
+- **FOSS Standards:** Ensure all dependencies are compatible with the MIT / F-Droid guidelines.
