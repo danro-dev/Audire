@@ -55,4 +55,19 @@ interface AudiobookDao {
 
     @Query("DELETE FROM listening_logs")
     suspend fun deleteAllListeningLogs()
+
+    @Query("SELECT * FROM book_quotes ORDER BY timestamp DESC")
+    fun getAllBookQuotes(): Flow<List<BookQuote>>
+
+    @Query("SELECT * FROM book_quotes WHERE bookId = :bookId ORDER BY timestamp DESC")
+    fun getBookQuotesForBook(bookId: Int): Flow<List<BookQuote>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertBookQuote(quote: BookQuote)
+
+    @Query("DELETE FROM book_quotes WHERE id = :id")
+    suspend fun deleteBookQuoteById(id: Int)
+
+    @Query("DELETE FROM book_quotes")
+    suspend fun deleteAllBookQuotes()
 }

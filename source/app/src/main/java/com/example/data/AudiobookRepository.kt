@@ -76,4 +76,20 @@ class AudiobookRepository(private val dao: AudiobookDao) {
         )
         dao.updateAudiobook(updated)
     }
+
+    val allBookQuotes: Flow<List<BookQuote>> = dao.getAllBookQuotes()
+
+    fun getBookQuotesForBook(bookId: Int): Flow<List<BookQuote>> = dao.getBookQuotesForBook(bookId)
+
+    suspend fun insertBookQuote(quote: BookQuote) {
+        dao.insertBookQuote(quote)
+    }
+
+    suspend fun deleteBookQuoteById(id: Int) {
+        dao.deleteBookQuoteById(id)
+    }
+
+    suspend fun deleteAllBookQuotes() {
+        dao.deleteAllBookQuotes()
+    }
 }

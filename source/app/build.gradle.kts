@@ -92,6 +92,7 @@ dependencies {
   implementation(libs.androidx.room.runtime)
   implementation(libs.androidx.documentfile)
   implementation(libs.androidx.media)
+  implementation(libs.pdfbox.android)
   implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
   // implementation(libs.firebase.ai)

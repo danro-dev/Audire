@@ -5,7 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [Audiobook::class, ScanDirectory::class, ListeningLog::class], version = 3, exportSchema = false)
+@Database(entities = [Audiobook::class, ScanDirectory::class, ListeningLog::class, BookQuote::class], version = 4, exportSchema = false)
 abstract class AudiobookDatabase : RoomDatabase() {
     abstract fun audiobookDao(): AudiobookDao
 

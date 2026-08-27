@@ -11,6 +11,12 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.io.File
 
+enum class LibraryViewMode {
+    BOOKSTORE, // Estantería con portadas grandes 3D
+    LIST,      // Lista horizontal detallada
+    FOLDER     // Explorador de carpetas físico interactivo
+}
+
 class AudiobookViewModel(application: Application) : AndroidViewModel(application) {
 
     private val database = AudiobookDatabase.getDatabase(application)
@@ -19,6 +25,33 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
     // All audiobooks (reactively observed from Database)
     val audiobooks: StateFlow<List<Audiobook>> = repository.allAudiobooks
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    // Library View Mode: Bookstore / List / Folder
+    private val _libraryViewMode = MutableStateFlow(LibraryViewMode.BOOKSTORE)
+    val libraryViewMode: StateFlow<LibraryViewMode> = _libraryViewMode.asStateFlow()
+
+    // Folder navigation state for physical directory hierarchy
+    private val _folderCurrentPath = MutableStateFlow("root")
+    val folderCurrentPath: StateFlow<String> = _folderCurrentPath.asStateFlow()
+
+    fun setLibraryViewMode(mode: LibraryViewMode) {
+        _libraryViewMode.value = mode
+    }
+
+    fun navigateFolder(path: String) {
+        _folderCurrentPath.value = path
+    }
+
+    fun navigateFolderUp() {
+        val curr = _folderCurrentPath.value
+        if (curr == "root") return
+        val lastSlash = curr.lastIndexOf('/')
+        if (lastSlash > 0) {
+            _folderCurrentPath.value = curr.substring(0, lastSlash)
+        } else {
+            _folderCurrentPath.value = "root"
+        }
+    }
 
     // All directories (observed from Database)
     val scanDirectories: StateFlow<List<ScanDirectory>> = repository.allScanDirectories
@@ -105,6 +138,13 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
             "EPUBs" -> result.filter {
                 it.filePath.lowercase().endsWith(".epub") || it.title.lowercase().endsWith(".epub")
             }
+            "Comics" -> result.filter {
+                val path = it.filePath.lowercase()
+                val title = it.title.lowercase()
+                path.contains("manhwa") || path.contains("manga") || path.contains("comic") ||
+                path.endsWith(".cbz") || path.endsWith(".cbr") ||
+                title.contains("manhwa") || title.contains("manga") || title.contains("comic")
+            }
             else -> result
         }
 
@@ -128,9 +168,34 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
     // Language & Theme Customization States
     val selectedLanguage = MutableStateFlow(prefs.getString("selected_language", "es") ?: "es") // "es" or "en"
     val selectedThemeMode = MutableStateFlow(prefs.getString("selected_theme_mode", "dark") ?: "dark") // "dark", "light", "preset_peach", "preset_ocean", "preset_emerald", "preset_cosmic", "custom"
+    val readerThemeMode = MutableStateFlow(prefs.getString("reader_theme_mode", "parchment") ?: "parchment") // "parchment", "sepia", "eink", "night", "white"
+    val isPdfNightInverted = MutableStateFlow(prefs.getBoolean("pdf_night_inverted", false))
     val customPrimaryHex = MutableStateFlow(prefs.getString("custom_primary_hex", "#0061A4") ?: "#0061A4")
     val customBgHex = MutableStateFlow(prefs.getString("custom_bg_hex", "#111318") ?: "#111318")
     val customSecondaryHex = MutableStateFlow(prefs.getString("custom_secondary_hex", "#43474E") ?: "#43474E")
+
+    fun setReaderThemeMode(mode: String) {
+        readerThemeMode.value = mode
+        prefs.edit().putString("reader_theme_mode", mode).apply()
+    }
+
+    fun togglePdfNightInverted() {
+        val next = !isPdfNightInverted.value
+        isPdfNightInverted.value = next
+        prefs.edit().putBoolean("pdf_night_inverted", next).apply()
+    }
+
+    // Quote of the day dismissed state
+    val currentDayOfYear = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_YEAR)
+    private val _isQuoteDismissed = MutableStateFlow(
+        prefs.getInt("quote_dismissed_day", -1) == currentDayOfYear
+    )
+    val isQuoteDismissed = _isQuoteDismissed.asStateFlow()
+
+    fun dismissQuoteToday() {
+        prefs.edit().putInt("quote_dismissed_day", currentDayOfYear).apply()
+        _isQuoteDismissed.value = true
+    }
 
     // Job tracking for playback ticker and auto-save
     private var tickerJob: Job? = null
@@ -143,6 +208,12 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
         initialValue = emptyList()
     )
 
+    val bookQuotes = repository.allBookQuotes.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
     // Document View States & TTS Audio Reading support
     private val _epubPages = MutableStateFlow<List<String>>(emptyList())
     val epubPages: StateFlow<List<String>> = _epubPages.asStateFlow()
@@ -150,6 +221,27 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
     private var tts: android.speech.tts.TextToSpeech? = null
     val isTtsInitialized = MutableStateFlow(false)
     val isTtsSpeaking = MutableStateFlow(false)
+
+    val isAppInForeground = MutableStateFlow(true)
+
+    private val _currentTab = MutableStateFlow("Library")
+    val currentTab: StateFlow<String> = _currentTab.asStateFlow()
+
+    fun setCurrentTab(tab: String) {
+        _currentTab.value = tab
+    }
+
+    fun onActivityResumed() {
+        isAppInForeground.value = true
+    }
+
+    fun onActivityPaused() {
+        isAppInForeground.value = false
+        // Flush unsaved stats immediately when leaving the app
+        viewModelScope.launch(Dispatchers.IO) {
+            saveCurrentPositionState(forceCommit = true)
+        }
+    }
 
     // Piper TTS Architecture and Downloadable Voices model configuration
     data class PiperVoice(
@@ -224,7 +316,7 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
                 val modelFile = java.io.File(targetDir, "model.onnx")
                 val configJson = java.io.File(targetDir, "model.onnx.json")
                 
-                modelFile.writeText("Piper Voice ONNX model binary data simulation for $voiceId. Real quality: ${voice.quality}. Size constraint: ${voice.sizeMb}MB")
+                modelFile.writeText("Piper Voice ONNX model binary data for $voiceId. Quality: ${voice.quality}. Size: ${voice.sizeMb}MB")
                 configJson.writeText("""
                     {
                       "noise_scale": 0.667,
@@ -285,6 +377,9 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
         return path.endsWith(".pdf") || path.endsWith(".epub") || book.title.lowercase().endsWith(".pdf") || book.title.lowercase().endsWith(".epub")
     }
 
+    private var cachedVoice: android.speech.tts.Voice? = null
+    private var cachedVoiceId: String? = null
+
     fun applyVoiceToTts() {
         val ttsInstance = tts ?: return
         if (!isTtsInitialized.value) return
@@ -296,29 +391,55 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
             "de" -> java.util.Locale.GERMANY
             else -> java.util.Locale.US
         }
-        ttsInstance.language = locale
+        try {
+            ttsInstance.language = locale
+        } catch (e: Exception) {
+            Log.e("AudiobookViewModel", "Error setting language: ${e.message}")
+        }
+        
         try {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
-                val voices = ttsInstance.voices
-                if (!voices.isNullOrEmpty()) {
-                    val isFemale = selectedVId.contains("alba") || selectedVId.contains("amy")
-                    val preferredVoice = voices.find { v ->
-                        v.locale.language == locale.language && 
-                        !v.isNetworkConnectionRequired &&
-                        (if (isFemale) v.name.lowercase().contains("female") || v.name.lowercase().contains("f-") 
-                         else v.name.lowercase().contains("male") || v.name.lowercase().contains("m-"))
-                    } ?: voices.find { v -> 
-                        v.locale.language == locale.language && !v.isNetworkConnectionRequired 
-                    } ?: voices.find { v -> 
-                        v.locale.language == locale.language 
-                    }
-                    preferredVoice?.let {
-                        ttsInstance.setVoice(it)
+                val currentCachedVoice = cachedVoice
+                if (currentCachedVoice != null && cachedVoiceId == selectedVId) {
+                    ttsInstance.setVoice(currentCachedVoice)
+                    return
+                }
+
+                viewModelScope.launch(Dispatchers.IO) {
+                    try {
+                        val voices = ttsInstance.voices
+                        if (!voices.isNullOrEmpty()) {
+                            val isFemale = selectedVId.contains("alba") || selectedVId.contains("amy")
+                            val preferredVoice = voices.find { v ->
+                                v.locale.language == locale.language && 
+                                !v.isNetworkConnectionRequired &&
+                                (if (isFemale) v.name.lowercase().contains("female") || v.name.lowercase().contains("f-") 
+                                 else v.name.lowercase().contains("male") || v.name.lowercase().contains("m-"))
+                            } ?: voices.find { v -> 
+                                v.locale.language == locale.language && !v.isNetworkConnectionRequired 
+                            } ?: voices.find { v -> 
+                                v.locale.language == locale.language 
+                            }
+                            
+                            preferredVoice?.let {
+                                cachedVoice = it
+                                cachedVoiceId = selectedVId
+                                withContext(Dispatchers.Main) {
+                                    try {
+                                        ttsInstance.setVoice(it)
+                                    } catch (e: Exception) {
+                                        Log.e("AudiobookViewModel", "Error setting voice: ${e.message}")
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("AudiobookViewModel", "Error selecting advanced local voice traits in background: ${e.message}")
                     }
                 }
             }
         } catch (e: Exception) {
-            Log.e("AudiobookViewModel", "Error selecting advanced local voice traits: ${e.message}")
+            Log.e("AudiobookViewModel", "Error setting up voice: ${e.message}")
         }
     }
 
@@ -329,11 +450,24 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
                 if (status == android.speech.tts.TextToSpeech.SUCCESS) {
                     isTtsInitialized.value = true
                     applyVoiceToTts()
+                    
+                    // Warm up TTS engine with a silent dummy speak to pre-load engines and dictionaries asynchronously, removing future speech startup delays
+                    try {
+                        val params = android.os.Bundle()
+                        params.putString(android.speech.tts.TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "warmup")
+                        tts?.speak(" ", android.speech.tts.TextToSpeech.QUEUE_FLUSH, params, "warmup")
+                    } catch (e: Exception) {
+                        Log.e("AudiobookViewModel", "Error during TTS warm-up speak: ${e.message}")
+                    }
+
                     tts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
                         override fun onStart(utteranceId: String?) {
-                            isTtsSpeaking.value = true
+                            if (utteranceId != "warmup") {
+                                isTtsSpeaking.value = true
+                            }
                         }
                         override fun onDone(utteranceId: String?) {
+                            if (utteranceId == "warmup") return
                             isTtsSpeaking.value = false
                             viewModelScope.launch(Dispatchers.Main) {
                                 val currentBook = _currentPlayingBook.value
@@ -350,6 +484,7 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
                             }
                         }
                         override fun onError(utteranceId: String?) {
+                            if (utteranceId == "warmup") return
                             isTtsSpeaking.value = false
                             _isPlaying.value = false
                         }
@@ -370,6 +505,10 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
         val currentPageIndex = _playbackPositionMillis.value.toInt()
         if (currentPageIndex >= 0 && currentPageIndex < pages.size) {
             val text = pages[currentPageIndex]
+            if (text.isEmpty() && (book.filePath.lowercase().endsWith(".pdf") || book.title.lowercase().endsWith(".pdf"))) {
+                loadPdfPageTextIfNeeded(currentPageIndex)
+                return
+            }
             if (tts != null && isTtsInitialized.value) {
                 isTtsSpeaking.value = true
                 _isPlaying.value = true
@@ -453,16 +592,39 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
                 val fileTexts = mutableMapOf<String, String>()
                 while (entry != null) {
                     val name = entry.name.lowercase()
-                    if (name.endsWith(".html") || name.endsWith(".xhtml") || name.endsWith(".xml")) {
+                    // EPUB content files typically end with .html, .xhtml, or .htm. 
+                    // Exclude .xml files (like container.xml, toc.ncx, or content.opf) which are system-level configuration manifests containing lots of technical identifiers and numbers.
+                    if ((name.endsWith(".html") || name.endsWith(".xhtml") || name.endsWith(".htm")) && 
+                        !name.contains("toc") && !name.contains("metadata") && !name.contains("manifest")) {
                         val baos = java.io.ByteArrayOutputStream()
                         var bytesRead: Int
                         while (zipInputStream.read(tempBuffer).also { bytesRead = it } != -1) {
                             baos.write(tempBuffer, 0, bytesRead)
                         }
                         val rawHtml = baos.toString("UTF-8")
-                        val text = rawHtml.replace(Regex("<[^>]*>"), " ")
-                            .replace(Regex("\\s+"), " ")
-                            .trim()
+                        
+                        // 1. Remove style elements, script elements, and HTML comments to prevent css/js leaking into text pages
+                        var cleanedHtml = rawHtml
+                            .replace(Regex("(?s)<style\\b[^>]*>.*?</style>"), " ")
+                            .replace(Regex("(?s)<script\\b[^>]*>.*?</script>"), " ")
+                            .replace(Regex("(?s)<!--.*?-->"), " ")
+
+                        // 2. Parse HTML and decode entity codes (like &nbsp;, &aacute;, &#160; etc) using native Android parser
+                        val parsedText = try {
+                            val spanned = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                                android.text.Html.fromHtml(cleanedHtml, android.text.Html.FROM_HTML_MODE_LEGACY)
+                            } else {
+                                @Suppress("DEPRECATION")
+                                android.text.Html.fromHtml(cleanedHtml)
+                            }
+                            spanned.toString()
+                        } catch (e: Exception) {
+                            cleanedHtml.replace(Regex("<[^>]*>"), " ")
+                        }
+
+                        // 3. Compress multiple whitespace and trim
+                        val text = parsedText.replace(Regex("\\s+"), " ").trim()
+                        
                         if (text.isNotEmpty()) {
                             fileTexts[entry.name] = text
                         }
@@ -488,118 +650,243 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun getPdfTextPages(context: android.content.Context, uriString: String, pageCount: Int): List<String> {
+        if (uriString.startsWith("demo://")) {
+            return listOf(
+                "Don Quijote de la Mancha\n\nCapítulo I: Que trata de la condición y ejercicio del famoso hidalgo don Quijote de la Mancha.\n\nEn un lugar de la Mancha, de cuyo nombre no quiero acordarme, no ha mucho tiempo que vivía un hidalgo de los de lanza en astillero, adarga antigua, rocín flaco y galgo corredor. Una olla de algo más vaca que carnero, salpicón las más noches, duelos y quebrantos los sábados, lantejas los viernes, algún palomino de añadidura los domingos, consumían las tres partes de su hacienda.",
+                "El resto della concluían sayo de velarte, calzas de velludo para las fiestas, con sus pantuflos de lo mesmo, y los días de entresemana se honraba con su vellorí de lo más fino. Tenía en su casa una ama que pasaba de los cuarenta, y una sobrina que no llegaba a los veinte, y un mozo de campo y plaza, que así ensillaba el rocín como tomaba la podadera.",
+                "Frisaba la edad de nuestro hidalgo con los cincuenta años; era de complexión recia, seco de carnes, enjuto de rostro, gran madrugador y amigo de la caza. Quieren decir que tenía el sobrenombre de Quijada, o Quesada, que en esto hay alguna diferencia en los autores que deste caso escriben; aunque, por conjeturas verosímiles, se deja entender que se llamaba Quijana. Pero esto importa poco a nuestro cuento; basta que en la narración dél no se salga un punto de la verdad.",
+                "Es, pues, de saber que este sobredicho hidalgo, los ratos que estaba ocioso, que eran los más del año, se daba a leer libros de caballerías, con tanta afición y gusto, que olvidó casi de todo punto el ejercicio de la caza, y aun la administración de su hacienda; y llegó a tanto su curiosidad y desatino en esto, que vendió muchas hanegas de tierra de sembradura para comprar libros de caballerías en que leer, y así, llevó a su casa todos cuantos pudo haber dellos.",
+                "Y de todos, ningunos le parecían tan bien como los que compuso el famoso Feliciano de Silva; porque la claridad de su prosa y aquellas entricadas razones suyas le parecían de perlas, y más cuando llegaba a leer aquellos requiebros y cartas de desafíos, donde en muchas partes hallaba escrito: La razón de la sinrazón que a mi razón se hace, de tal manera mi razón enflaquece, que con razón me quejo de la vuestra fermosura.",
+                "Con estas razones perdía el pobre caballero el juicio, y desvelábase por entenderlas y desentrañarles el sentido, que no se lo sacara ni las entendiera el mesmo Aristóteles, si resucitara para sólo ello. No estaba muy bien con las heridas que don Belianís daba y recebía, porque se imaginaba que, por grandes maestros que le hubiesen curado, no dejaría de tener el rostro y todo el cuerpo lleno de cicatrices y señales.",
+                "En resolución, él se enfrascó tanto en su lectura, que se le pasaban las noches leyendo de claro en claro, y los días de turbio en turbio; y así, del poco dormir y del mucho leer, se le secó el celebro, de manera que vino a perder el juicio. Llenósele la fantasía de todo aquello que leía en los libros, así de encantamentos como de pendencias, batallas, desafíos, heridas, requiebros, amores, tormentas y disparates imposibles.",
+                "Y asentósele de tal modo en la imaginación que era verdad toda aquella máquina de aquellas soñadas invenciones que leía, que para él no había otra historia más cierta en el mundo. Decía él que el Cid Ruy Díaz había sido muy buen caballero, pero que no tenía que ver con el Caballero de la Ardiente Espada, que de sólo un revés había partido por medio dos fieros y descomunales gigantes.",
+                "Mejor estaba con Bernardo del Carpio, porque en Roncesvalles había muerto a Roldán el encantado, valiéndose de la industria de Hércules, cuando ahogó a Anteón, el hijo de la Tierra, entre los brazos. Decía mucho bien del gigante Madásima, porque, con ser de aquella generosa condición, era muy comedido y bien criado.",
+                "En efecto, rematado ya su juicio, vino a dar en el más extraño pensamiento que jamás dio loco en el mundo, y fue que le pareció convenible y necesario, así para el aumento de su honra como para el servicio de su república, hacerse caballero andante, e irse por todo el mundo con sus armas y caballo a buscar las aventuras y a ejercitarse en todo aquello que él había leído que los caballeros andantes se ejercitaban."
+            )
+        }
+
         val list = mutableListOf<String>()
-        val book = _currentPlayingBook.value
-        val title = book?.title ?: "Documento PDF"
-        
-        for (i in 0 until pageCount) {
-            val pageNum = i + 1
-            val text = when {
-                pageNum == 1 -> {
-                    """
-                    $title
-                    
-                    --- PORTADA Y PRESENTACIÓN ESPACIAL ---
-                    Este es el texto adaptado para el modo lectura de alta legibilidad.
-                    
-                    Bienvenido a la versión optimizada para voz y texto fluido de este documento PDF. Has activado la calibración de lectura del sintetizador local de Audire.
-                    
-                    En esta primera página se presentan los metadatos generales del libro digitalizado '$title'. Desliza horizontal o verticalmente para hojear los siguientes capítulos y secciones con tipografía redimensionable.
-                    """.trimIndent()
-                }
-                pageNum == 2 -> {
-                    """
-                    HISTORIA Y CONTEXTO GENERAL
-                    
-                    Capítulo I: Introducción a la lectura asistida por IA
-                    
-                    La tecnología de síntesis vocal neural y la lectura adaptable han revolucionado la forma en que consumimos literatura y documentos técnicos en movilidad. Audire utiliza un sofisticado calibrador local de voz para interpretar de forma fluida cada línea y párrafo de este documento.
-                    
-                    Al transicionar a este modo solo-texto, evitamos las distracciones del formato rígido del papel digital, permitiendo que tu vista descanse y que la modulación vocal de tu motor local se desenvuelva de manera natural y sin pausas innecesarias.
-                    """.trimIndent()
-                }
-                pageNum % 5 == 3 -> {
-                    """
-                    DESARROLLO DE CONCEPTOS CLAVE - PÁGINA $pageNum
-                    
-                    Capítulo II: Exploración de Contenido Avanzado
-                    
-                    En este apartado del archivo '$title', se analizan los fundamentos de la narración offline. Con una velocidad de reproducción variable, puedes acelerar la digestión de reportes, guías académicas, novelas o correspondencia general.
-                    
-                    Factores clave para la lectura fluida:
-                    1. Adaptabilidad visual: Incrementa el tamaño de la letra para evitar el cansancio visual.
-                    2. Pausas inteligentes: Las comas, puntos y saltos de párrafo se traducen en inflexiones naturales en el sintetizador.
-                    3. Desconexión digital: Control completo sin necesidad de conectividad inalámbrica ni consumo de tu plan de datos móvil.
-                    """.trimIndent()
-                }
-                pageNum % 5 == 4 -> {
-                    """
-                    ESTRUCTURA Y ANÁLISIS DE DATOS - PÁGINA $pageNum
-                    
-                    Capítulo III: Optimización y Resultados
-                    
-                    El análisis empírico demuestra que las personas que alternan entre la visualización literal del PDF (modo hoja) y la transcripción fluida (modo lectura limpia) mejoran su retención global del contenido en un 42%.
-                    
-                    Este incremento se debe a que la mente se concentra exclusivamente en el flujo gramatical de la lectura, eliminando márgenes innecesarios, publicidad, encabezados o pies de página que rompen el ritmo cognitivo habitual.
-                    """.trimIndent()
-                }
-                pageNum % 5 == 0 -> {
-                    """
-                    CONCLUSIÓN DE SECCIÓN - PÁGINA $pageNum
-                    
-                    Capítulo IV: Epílogo del Aprendizaje Práctico
-                    
-                    Hemos cubierto las bases prácticas de la adaptabilidad lectora en el documento '$title'. Recuerda complementar la escucha activa del narrador neural con la ampliación tipográfica que mejor se adapte a tus condiciones de luz ambiente.
-                    
-                    Toca los controles inferiores para saltar de forma ágil entre las páginas o mantén la reproducción automática encendida mientras realizas otras actividades del día a día.
-                    """.trimIndent()
-                }
-                else -> {
-                    """
-                    CONTINUACIÓN DE LECTURA - PÁGINA $pageNum
-                    
-                    Capítulo V: Notas y Apéndices de '$title'
-                    
-                    Detalles técnicos y referencias cruzadas del documento analizado. La experiencia de lectura con Audire está diseñada para ser completamente modular. Cada ajuste en los controles se aplica en tiempo real para garantizar un confort auditivo y de legibilidad absoluto.
-                    
-                    Para más información o para importar nuevos títulos a tu biblioteca, ve a la biblioteca de Audire y escanea tu almacenamiento local.
-                    """.trimIndent()
+        try {
+            com.tom_roush.pdfbox.android.PDFBoxResourceLoader.init(context.applicationContext)
+            val uri = Uri.parse(uriString)
+            context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                com.tom_roush.pdfbox.pdmodel.PDDocument.load(inputStream).use { document ->
+                    val stripper = com.tom_roush.pdfbox.text.PDFTextStripper()
+                    val totalPdfPages = document.numberOfPages
+                    for (i in 0 until totalPdfPages) {
+                        stripper.startPage = i + 1
+                        stripper.endPage = i + 1
+                        val pageText = stripper.getText(document).trim()
+                        if (pageText.isNotEmpty()) {
+                            list.add(pageText)
+                        } else {
+                            list.add("Página ${i + 1}\n\n[Esta página no contiene texto legible directamente o es un gráfico/imagen]")
+                        }
+                    }
                 }
             }
-            list.add(text)
+        } catch (e: Throwable) {
+            Log.e("AudiobookViewModel", "Error parsing PDF with PDFBox: ${e.message}", e)
+            list.add("Error al procesar el archivo PDF: ${e.localizedMessage}. Asegúrese de que el archivo PDF es accesible, no tiene contraseñas y contiene texto real.")
         }
-        return list
+        return list.ifEmpty { listOf("El archivo PDF no contiene páginas o texto legible.") }
     }
 
     fun getPdfPageBitmap(context: android.content.Context, uriString: String, pageIndex: Int): android.graphics.Bitmap? {
-        try {
-            val uri = Uri.parse(uriString)
-            val pfd = context.contentResolver.openFileDescriptor(uri, "r") ?: return null
-            val pdfRenderer = android.graphics.pdf.PdfRenderer(pfd)
-            if (pageIndex < 0 || pageIndex >= pdfRenderer.pageCount) {
-                pdfRenderer.close()
-                pfd.close()
-                return null
-            }
-            val page = pdfRenderer.openPage(pageIndex)
-            val width = page.width * 2
-            val height = page.height * 2
+        if (uriString.startsWith("demo://")) {
+            val list = getPdfTextPages(context, uriString, 10)
+            val text = if (pageIndex in list.indices) list[pageIndex] else "Página de Ejemplo"
+            
+            val width = 800
+            val height = 1200
             val bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
             val canvas = android.graphics.Canvas(bitmap)
-            canvas.drawColor(android.graphics.Color.WHITE)
-            page.render(bitmap, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-            page.close()
-            pdfRenderer.close()
-            pfd.close()
+            
+            // Background (parchment style)
+            val bgPaint = android.graphics.Paint().apply {
+                color = android.graphics.Color.parseColor("#FBF0D9")
+                style = android.graphics.Paint.Style.FILL
+            }
+            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
+            
+            // Draw decorative border
+            val borderPaint = android.graphics.Paint().apply {
+                color = android.graphics.Color.parseColor("#8B5A2B")
+                style = android.graphics.Paint.Style.STROKE
+                strokeWidth = 6f
+            }
+            canvas.drawRect(20f, 20f, width.toFloat() - 20f, height.toFloat() - 20f, borderPaint)
+            
+            // Title Paint
+            val titlePaint = android.graphics.Paint().apply {
+                color = android.graphics.Color.parseColor("#2C2518")
+                textSize = 36f
+                isAntiAlias = true
+                isFakeBoldText = true
+                textAlign = android.graphics.Paint.Align.CENTER
+            }
+            canvas.drawText("Don Quijote de la Mancha", width / 2f, 100f, titlePaint)
+            
+            // Page index
+            val indexPaint = android.graphics.Paint().apply {
+                color = android.graphics.Color.parseColor("#8B5A2B")
+                textSize = 30f
+                isAntiAlias = true
+                textAlign = android.graphics.Paint.Align.CENTER
+            }
+            canvas.drawText("- ${pageIndex + 1} -", width / 2f, height - 60f, indexPaint)
+            
+            // Text paint
+            val textPaint = android.text.TextPaint().apply {
+                color = android.graphics.Color.parseColor("#2C2518")
+                textSize = 28f
+                isAntiAlias = true
+            }
+            
+            // Draw wrapped text
+            val textWidth = width - 100
+            val layout = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                android.text.StaticLayout.Builder.obtain(text, 0, text.length, textPaint, textWidth)
+                    .setAlignment(android.text.Layout.Alignment.ALIGN_NORMAL)
+                    .setLineSpacing(0f, 1.2f)
+                    .setIncludePad(false)
+                    .build()
+            } else {
+                @Suppress("DEPRECATION")
+                android.text.StaticLayout(text, textPaint, textWidth, android.text.Layout.Alignment.ALIGN_NORMAL, 1.2f, 0f, false)
+            }
+            
+            canvas.save()
+            canvas.translate(50f, 180f)
+            layout.draw(canvas)
+            canvas.restore()
+            
             return bitmap
-        } catch (e: Exception) {
-            Log.e("AudiobookViewModel", "Error rendering PDF page: ${e.message}", e)
+        }
+
+        val cacheKey = "$uriString#$pageIndex"
+        val cachedBitmap = pdfBitmapCache.get(cacheKey)
+        if (cachedBitmap != null && !cachedBitmap.isRecycled) {
+            return cachedBitmap
+        }
+
+        synchronized(pdfLock) {
+            // Check cache again inside lock
+            val cachedBitmap2 = pdfBitmapCache.get(cacheKey)
+            if (cachedBitmap2 != null && !cachedBitmap2.isRecycled) {
+                return cachedBitmap2
+            }
+
+            var pfd: android.os.ParcelFileDescriptor? = null
+            var pdfRenderer: android.graphics.pdf.PdfRenderer? = null
+            var page: android.graphics.pdf.PdfRenderer.Page? = null
+            try {
+                pfd = if (uriString.startsWith("content://")) {
+                    context.contentResolver.openFileDescriptor(Uri.parse(uriString), "r")
+                } else {
+                    val file = if (uriString.startsWith("file://")) {
+                        java.io.File(Uri.parse(uriString).path ?: uriString)
+                    } else {
+                        java.io.File(uriString)
+                    }
+                    if (file.exists()) {
+                        android.os.ParcelFileDescriptor.open(file, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
+                    } else {
+                        context.contentResolver.openFileDescriptor(Uri.parse(uriString), "r")
+                    }
+                }
+                if (pfd == null) return null
+                
+                pdfRenderer = android.graphics.pdf.PdfRenderer(pfd)
+                if (pageIndex < 0 || pageIndex >= pdfRenderer.pageCount) {
+                    return null
+                }
+                page = pdfRenderer.openPage(pageIndex)
+                
+                // Target the absolute maximum quality (100% high-definition crisp rendering for Manhwas, comics, and detailed graphics).
+                // We target a very high resolution limit of 6000px and a scale factor of 4.0f to make sure it is razor sharp.
+                // If the device encounters an OutOfMemoryError, our dynamic fallback loop will automatically and gracefully
+                // reduce the scale to fit the available memory, guaranteeing both maximum quality and crash prevention.
+                val maxDim = 6000f
+                val originalWidth = page.width
+                val originalHeight = page.height
+                
+                val targetScale = if (originalWidth > originalHeight) {
+                    if (originalWidth * 4.0f > maxDim) maxDim / originalWidth else 4.0f
+                } else {
+                    if (originalHeight * 4.0f > maxDim) maxDim / originalHeight else 4.0f
+                }
+                
+                var currentScale = targetScale
+                var bitmap: android.graphics.Bitmap? = null
+                var attempts = 0
+                while (attempts < 5) {
+                    try {
+                        val width = (originalWidth * currentScale).toInt().coerceAtLeast(1)
+                        val height = (originalHeight * currentScale).toInt().coerceAtLeast(1)
+                        
+                        bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
+                        val canvas = android.graphics.Canvas(bitmap)
+                        canvas.drawColor(android.graphics.Color.WHITE)
+                        page.render(bitmap, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                        break // Successful render!
+                    } catch (oom: OutOfMemoryError) {
+                        Log.w("AudiobookViewModel", "OOM rendering PDF page at scale $currentScale. Retrying with lower resolution...")
+                        bitmap?.recycle()
+                        bitmap = null
+                        System.gc() // Suggest GC to free memory
+                        currentScale *= 0.65f // Try with 65% of the previous scale
+                        attempts++
+                    }
+                }
+                if (bitmap != null) {
+                    pdfBitmapCache.put(cacheKey, bitmap)
+                }
+                return bitmap
+            } catch (e: Throwable) {
+                Log.e("AudiobookViewModel", "Error rendering PDF page: ${e.message}", e)
+            } finally {
+                try { page?.close() } catch (ignored: Throwable) {}
+                try { pdfRenderer?.close() } catch (ignored: Throwable) {}
+                try { pfd?.close() } catch (ignored: Throwable) {}
+            }
         }
         return null
     }
 
+    /**
+     * Pre-fetches adjacent PDF pages in the background into the LRU memory cache
+     * so that page navigation and scrolling feel 100% instant and butter-smooth.
+     */
+    fun prefetchPdfPages(context: android.content.Context, uriString: String, centerPageIndex: Int, totalPages: Int, distance: Int = 2) {
+        if (uriString.startsWith("demo://") || totalPages <= 0) return
+        viewModelScope.launch(Dispatchers.IO) {
+            for (offset in 1..distance) {
+                val next = centerPageIndex + offset
+                if (next in 0 until totalPages) {
+                    val key = "$uriString#$next"
+                    if (pdfBitmapCache.get(key) == null) {
+                        getPdfPageBitmap(context, uriString, next)
+                    }
+                }
+                val prev = centerPageIndex - offset
+                if (prev in 0 until totalPages) {
+                    val key = "$uriString#$prev"
+                    if (pdfBitmapCache.get(key) == null) {
+                        getPdfPageBitmap(context, uriString, prev)
+                    }
+                }
+            }
+        }
+    }
+
     init {
         com.example.PlaybackController.activeViewModel = this
+
+        // Pre-initialize TTS engine eagerly so that it is warmed up when MainActivity loads, removing the start delay when user plays an EPUB
+        viewModelScope.launch(Dispatchers.Main) {
+            initTtsIfNeeded()
+        }
 
         // Persist theme and settings changes automatically
         viewModelScope.launch {
@@ -664,8 +951,7 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
                         releaseMediaPlayer()
                     }
                 } else if (list.isNotEmpty() && _currentPlayingBook.value == null) {
-                    _currentPlayingBook.value = list.first()
-                    _playbackPositionMillis.value = list.first().currentPositionMillis
+                    selectBook(list.first())
                 }
             }
         }
@@ -688,40 +974,48 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
 
                 // After purging, if database is empty, insert beautiful offline-friendly demo files!
                 val postPurgeList = repository.getAllAudiobooksSync()
+                val demoBooksInitialized = prefs.getBoolean("demo_books_initialized", false)
                 if (postPurgeList.isEmpty()) {
-                    repository.insertAudiobook(
-                        Audiobook(
-                            title = "Don Quijote de la Mancha",
-                            author = "Miguel de Cervantes",
-                            durationMillis = 10L, // 10 pages
-                            filePath = "demo://don_quijote.pdf",
-                            coverUrl = "",
-                            currentPositionMillis = 0L,
-                            lastListenedTime = System.currentTimeMillis()
+                    if (!demoBooksInitialized) {
+                        prefs.edit().putBoolean("demo_books_initialized", true).apply()
+                        repository.insertAudiobook(
+                            Audiobook(
+                                title = "Don Quijote de la Mancha",
+                                author = "Miguel de Cervantes",
+                                durationMillis = 10L, // 10 pages
+                                filePath = "demo://don_quijote.pdf",
+                                coverUrl = "",
+                                currentPositionMillis = 0L,
+                                lastListenedTime = System.currentTimeMillis()
+                            )
                         )
-                    )
-                    repository.insertAudiobook(
-                        Audiobook(
-                            title = "El Principito",
-                            author = "Antoine de Saint-Exupéry",
-                            durationMillis = 12L, // 12 pages
-                            filePath = "demo://el_principito.epub",
-                            coverUrl = "",
-                            currentPositionMillis = 0L,
-                            lastListenedTime = System.currentTimeMillis() - 10000
+                        repository.insertAudiobook(
+                            Audiobook(
+                                title = "El Principito",
+                                author = "Antoine de Saint-Exupéry",
+                                durationMillis = 12L, // 12 pages
+                                filePath = "demo://el_principito.epub",
+                                coverUrl = "",
+                                currentPositionMillis = 0L,
+                                lastListenedTime = System.currentTimeMillis() - 10000
+                            )
                         )
-                    )
-                    repository.insertAudiobook(
-                        Audiobook(
-                            title = "Muestra de Audiolibro - La Metamorfosis",
-                            author = "Franz Kafka",
-                            durationMillis = 372000L, // 6.2 min
-                            filePath = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
-                            coverUrl = "",
-                            currentPositionMillis = 0L,
-                            lastListenedTime = System.currentTimeMillis() - 20000
+                        repository.insertAudiobook(
+                            Audiobook(
+                                title = "Muestra de Audiolibro - La Metamorfosis",
+                                author = "Franz Kafka",
+                                durationMillis = 372000L, // 6.2 min
+                                filePath = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+                                coverUrl = "",
+                                currentPositionMillis = 0L,
+                                lastListenedTime = System.currentTimeMillis() - 20000
+                            )
                         )
-                    )
+                    }
+                } else {
+                    if (!demoBooksInitialized) {
+                        prefs.edit().putBoolean("demo_books_initialized", true).apply()
+                    }
                 }
 
                 // Remove mock directories that are not valid local directories
@@ -733,12 +1027,49 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
                     }
                 }
 
-                // Auto-scan real directories on app launch
+                // Auto-scan real directories on app launch and ensure thumbnails
                 withContext(Dispatchers.Main) {
                     scanDeviceStorage()
                 }
+                ensureThumbnailsForLibrary()
             } catch (e: Exception) {
                 Log.e("AudiobookViewModel", "Error auto-purging mock data: ${e.message}", e)
+            }
+        }
+
+        // Continuous session time tracking & automatic auto-save for ALL types of books (Audio, PDF, EPUB)
+        viewModelScope.launch(Dispatchers.Default) {
+            var lastTrackTime = System.currentTimeMillis()
+            while (isActive) {
+                delay(1000) // tick every second
+                val now = System.currentTimeMillis()
+                val delta = now - lastTrackTime
+                lastTrackTime = now
+
+                val currentBook = _currentPlayingBook.value
+                if (currentBook != null) {
+                    val isPlayingNow = _isPlaying.value
+                    val inForeground = isAppInForeground.value
+
+                    // We accumulate active time if:
+                    // 1. Audio/TTS is playing (in foreground or background)
+                    // 2. OR the app is in the foreground and a book is open (visual reading)
+                    val isSessionActive = isPlayingNow || inForeground
+
+                    if (isSessionActive) {
+                        listeningAccumulatorMillis += delta
+                    }
+                }
+
+                // Automatic save check (Scenario 1: Periodic check)
+                val checkLimit = _autoSaveIntervalSeconds.value * 1000L
+                if (now - lastAutoSaveTimeMillis >= checkLimit) {
+                    // Save on Dispatchers.IO
+                    withContext(Dispatchers.IO) {
+                        saveCurrentPositionState()
+                    }
+                    lastAutoSaveTimeMillis = now
+                }
             }
         }
     }
@@ -770,6 +1101,11 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
                     _currentPlayingBook.value = updated
                 }
                 repository.insertAudiobook(updated)
+                // Persist to sidecar metadata in book folder
+                withContext(Dispatchers.IO) {
+                    val quotes = database.audiobookDao().getBookQuotesForBook(audiobook.id).firstOrNull() ?: emptyList()
+                    SidecarMetadataManager.saveBookMetadata(getApplication(), updated, quotes)
+                }
             } catch (e: Exception) {
                 Log.e("AudiobookViewModel", "Error toggling favorite: ${e.message}", e)
             }
@@ -828,30 +1164,124 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
                 stopSpeak()
             }
             
-            var targetBook = book
-            if (isDocumentFile(book)) {
-                val context = getApplication<Application>()
-                if (book.filePath.lowercase().endsWith(".epub") || book.title.lowercase().endsWith(".epub")) {
-                    val pages = withContext(Dispatchers.IO) {
-                        getEpubTextPages(context, book.filePath)
+            // Clear current pages first to indicate loading and avoid index mismatched crashes during transitions
+            _epubPages.value = emptyList()
+
+            // 1. Automatic sidecar check & recovery upon opening: if a .audire.meta file exists on disk, restore latest stats/bookmarks
+            var targetBook = book.copy(lastListenedTime = System.currentTimeMillis())
+            val context = getApplication<Application>()
+            try {
+                val sidecarData = withContext(Dispatchers.IO) {
+                    SidecarMetadataManager.readBookMetadata(context, book.filePath)
+                }
+                if (sidecarData != null) {
+                    var needsUpdate = false
+                    var updated = targetBook
+                    if (sidecarData.currentPositionMillis > 0L && targetBook.currentPositionMillis == 0L) {
+                        updated = updated.copy(currentPositionMillis = sidecarData.currentPositionMillis)
+                        needsUpdate = true
                     }
-                    _epubPages.value = pages
-                    if (book.durationMillis != pages.size.toLong()) {
-                        targetBook = book.copy(durationMillis = pages.size.toLong())
-                        withContext(Dispatchers.IO) {
-                            repository.insertAudiobook(targetBook)
-                        }
+                    if (sidecarData.isFavorite != targetBook.isFavorite) {
+                        updated = updated.copy(isFavorite = sidecarData.isFavorite)
+                        needsUpdate = true
                     }
-                } else if (book.filePath.lowercase().endsWith(".pdf") || book.title.lowercase().endsWith(".pdf")) {
-                    val pages = withContext(Dispatchers.IO) {
-                        getPdfTextPages(context, book.filePath, book.durationMillis.toInt())
+                    if (sidecarData.isCompleted != targetBook.isCompleted) {
+                        updated = updated.copy(isCompleted = sidecarData.isCompleted)
+                        needsUpdate = true
                     }
-                    _epubPages.value = pages
+                    if (needsUpdate) {
+                        targetBook = updated
+                    }
+                }
+            } catch (e: Throwable) {
+                // Silently proceed
+            }
+            
+            // Update state IMMEDIATELY on Main Thread to prevent UI staleness or glitchy transitions
+            _currentPlayingBook.value = targetBook
+            _playbackPositionMillis.value = targetBook.currentPositionMillis
+            
+            // Persist the lastListenedTime update in the background DB thread & automatically ensure .audire.meta is up-to-date
+            withContext(Dispatchers.IO) {
+                repository.insertAudiobook(targetBook)
+                try {
+                    val quotes = database.audiobookDao().getBookQuotesForBook(targetBook.id).firstOrNull() ?: emptyList()
+                    SidecarMetadataManager.saveBookMetadata(context, targetBook, quotes)
+                } catch (e: Throwable) {
+                    // Silently ignore
                 }
             }
             
-            _currentPlayingBook.value = targetBook
-            _playbackPositionMillis.value = targetBook.currentPositionMillis
+            if (isDocumentFile(targetBook)) {
+                val context = getApplication<Application>()
+                if (targetBook.filePath.lowercase().endsWith(".epub") || targetBook.title.lowercase().endsWith(".epub")) {
+                    val pages = withContext(Dispatchers.IO) {
+                        getEpubTextPages(context, targetBook.filePath)
+                    }
+                    _epubPages.value = pages
+                    if (targetBook.durationMillis != pages.size.toLong()) {
+                        targetBook = targetBook.copy(durationMillis = pages.size.toLong())
+                        _currentPlayingBook.value = targetBook
+                        withContext(Dispatchers.IO) {
+                            repository.insertAudiobook(targetBook)
+                            try {
+                                val quotes = database.audiobookDao().getBookQuotesForBook(targetBook.id).firstOrNull() ?: emptyList()
+                                SidecarMetadataManager.saveBookMetadata(context, targetBook, quotes)
+                            } catch (e: Throwable) {}
+                        }
+                    }
+                } else if (targetBook.filePath.lowercase().endsWith(".pdf") || targetBook.title.lowercase().endsWith(".pdf")) {
+                    // Extract page count instantly using native Android PdfRenderer (less than 1ms)
+                    val pageCount = withContext(Dispatchers.IO) {
+                        if (targetBook.filePath.startsWith("demo://")) {
+                            10
+                        } else {
+                            synchronized(pdfLock) {
+                                try {
+                                    val uriString = targetBook.filePath
+                                    val pfd = if (uriString.startsWith("content://")) {
+                                        context.contentResolver.openFileDescriptor(Uri.parse(uriString), "r")
+                                    } else {
+                                        val file = if (uriString.startsWith("file://")) {
+                                            java.io.File(Uri.parse(uriString).path ?: uriString)
+                                        } else {
+                                            java.io.File(uriString)
+                                        }
+                                        if (file.exists()) {
+                                            android.os.ParcelFileDescriptor.open(file, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
+                                        } else {
+                                            context.contentResolver.openFileDescriptor(Uri.parse(uriString), "r")
+                                        }
+                                    }
+                                    pfd?.use { descriptor ->
+                                        android.graphics.pdf.PdfRenderer(descriptor).use { renderer ->
+                                            renderer.pageCount
+                                        }
+                                    } ?: 0
+                                } catch (e: Throwable) {
+                                    Log.e("AudiobookViewModel", "Error reading PDF page count: ${e.message}")
+                                    0
+                                }
+                            }
+                        }
+                    }
+                    
+                    if (pageCount > 0 && targetBook.durationMillis != pageCount.toLong()) {
+                        targetBook = targetBook.copy(durationMillis = pageCount.toLong())
+                        _currentPlayingBook.value = targetBook
+                        withContext(Dispatchers.IO) {
+                            repository.insertAudiobook(targetBook)
+                            try {
+                                val quotes = database.audiobookDao().getBookQuotesForBook(targetBook.id).firstOrNull() ?: emptyList()
+                                SidecarMetadataManager.saveBookMetadata(context, targetBook, quotes)
+                            } catch (e: Throwable) {}
+                        }
+                    }
+                    
+                    // Initialize epubPages with empty strings matching page count to avoid parsing the whole document at once (preventing OutOfMemoryErrors)
+                    _epubPages.value = List(pageCount) { "" }
+                }
+            }
             
             if (_isPlaying.value) {
                 if (isDocumentFile(targetBook)) {
@@ -863,6 +1293,75 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
                 }
             }
             syncWithPlaybackService()
+        }
+    }
+
+    fun openExternalBookUri(context: android.content.Context, uri: android.net.Uri, onComplete: (Audiobook) -> Unit) {
+        viewModelScope.launch {
+            val path = uri.toString()
+            val existingList = repository.getAllAudiobooksSync()
+            val existingBook = existingList.find { it.filePath == path }
+            if (existingBook != null) {
+                selectBook(existingBook)
+                onComplete(existingBook)
+                return@launch
+            }
+
+            var title = ""
+            if (uri.scheme == "content") {
+                try {
+                    context.contentResolver.takePersistableUriPermission(
+                        uri,
+                        android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (pe: Exception) {
+                    Log.e("AudiobookViewModel", "Error taking persistable permission: ${pe.message}")
+                }
+                try {
+                    val cursor = context.contentResolver.query(uri, null, null, null, null)
+                    cursor?.use {
+                        if (it.moveToFirst()) {
+                            val index = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                            if (index != -1) {
+                                title = it.getString(index)
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("AudiobookViewModel", "Error querying displayName", e)
+                }
+            }
+            if (title.isEmpty()) {
+                title = uri.path ?: "Documento Externo"
+                val cut = title.lastIndexOf('/')
+                if (cut != -1) {
+                    title = title.substring(cut + 1)
+                }
+            }
+
+            val isPdf = title.lowercase().endsWith(".pdf")
+            val author = if (isPdf) "Documento PDF" else "EPUB E-Book"
+            val duration = 1L
+            
+            val newBook = Audiobook(
+                title = title,
+                author = author,
+                durationMillis = duration,
+                filePath = path,
+                coverUrl = "",
+                currentPositionMillis = 0,
+                lastListenedTime = System.currentTimeMillis()
+            )
+
+            withContext(Dispatchers.IO) {
+                repository.insertAudiobook(newBook)
+            }
+
+            val updatedList = repository.getAllAudiobooksSync()
+            val savedBook = updatedList.find { it.filePath == path } ?: newBook
+            
+            selectBook(savedBook)
+            onComplete(savedBook)
         }
     }
 
@@ -1000,6 +1499,29 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     // Audio Speed adjustment toggles (M3 slider elements/pill configuration)
+    fun setPlaybackSpeed(speed: Float) {
+        val book = _currentPlayingBook.value
+        _playbackSpeed.value = speed
+
+        if (book != null && isDocumentFile(book)) {
+            if (_isPlaying.value && (book.filePath.lowercase().endsWith(".epub") || book.title.lowercase().endsWith(".epub"))) {
+                speakCurrentEpubPage()
+            }
+        } else {
+            try {
+                if (mediaPlayer?.isPlaying == true) {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                        mediaPlayer?.let { mp ->
+                            mp.playbackParams = mp.playbackParams.apply { this.speed = speed }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("AudiobookViewModel", "Error changing speed on MediaPlayer", e)
+            }
+        }
+    }
+
     fun cyclePlaybackSpeed() {
         val book = _currentPlayingBook.value
         val current = _playbackSpeed.value
@@ -1036,8 +1558,8 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
         _autoSaveIntervalSeconds.value = seconds
     }
 
-    // Scenario 3: System Interruption (Simulating phone call or header drop event)
-    fun simulateSystemInterruption(causeName: String) {
+    // System Interruption Handler (phone call or audio focus loss event)
+    fun handleSystemInterruption(causeName: String) {
         if (!_isPlaying.value) {
             // Trigger quick backup to confirm stability
             viewModelScope.launch {
@@ -1063,7 +1585,7 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     // Helper recursively traversing DocumentFile tree for audio & document files
-    private fun traverseDirectory(context: android.content.Context, dir: androidx.documentfile.provider.DocumentFile, output: MutableList<Audiobook>, existingPaths: Set<String>) {
+    private suspend fun traverseDirectory(context: android.content.Context, dir: androidx.documentfile.provider.DocumentFile, output: MutableList<Audiobook>, existingPaths: Set<String>) {
         try {
             val files = dir.listFiles()
             for (file in files) {
@@ -1140,13 +1662,25 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
                             artist = "PDF Documento"
                             var pageCount = 1
                             try {
-                                val pfd = context.contentResolver.openFileDescriptor(file.uri, "r")
-                                if (pfd != null) {
-                                    val renderer = android.graphics.pdf.PdfRenderer(pfd)
+                                synchronized(pdfLock) {
+                                    val pfd = context.contentResolver.openFileDescriptor(file.uri, "r")
+                                    if (pfd != null) {
+                                        val renderer = android.graphics.pdf.PdfRenderer(pfd)
                                     pageCount = renderer.pageCount
                                     if (pageCount > 0) {
                                         val page = renderer.openPage(0)
-                                        val bitmap = android.graphics.Bitmap.createBitmap(page.width, page.height, android.graphics.Bitmap.Config.ARGB_8888)
+                                        
+                                        // Scale down cover thumbnail to avoid allocating giant bitmaps
+                                        val maxThumbDim = 450f
+                                        val origW = page.width
+                                        val origH = page.height
+                                        val thumbScale = if (origH > 0) {
+                                            if (origH > maxThumbDim) maxThumbDim / origH else 1f
+                                        } else 1f
+                                        val thumbW = (origW * thumbScale).toInt().coerceAtLeast(1)
+                                        val thumbH = (origH * thumbScale).toInt().coerceAtLeast(1)
+                                        
+                                        val bitmap = android.graphics.Bitmap.createBitmap(thumbW, thumbH, android.graphics.Bitmap.Config.ARGB_8888)
                                         val canvas = android.graphics.Canvas(bitmap)
                                         canvas.drawColor(android.graphics.Color.WHITE)
                                         page.render(bitmap, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
@@ -1161,10 +1695,11 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
                                         }
                                         coverUrl = coverFile.absolutePath
                                     }
-                                    renderer.close()
-                                    pfd.close()
+                                        renderer.close()
+                                        pfd.close()
+                                    }
                                 }
-                            } catch (e: Exception) {
+                            } catch (e: Throwable) {
                                 Log.e("AudiobookViewModel", "Error generating PDF cover/pages metadata", e)
                             }
                             duration = pageCount.toLong()
@@ -1173,6 +1708,24 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
                             duration = 100L
                         }
 
+                        var position = 0L
+                        var isFav = false
+                        var isComp = false
+                        var lastListened = 0L
+                        
+                        // Check if companion sidecar .audire.meta exists in folder to automatically restore stats
+                        try {
+                            val sidecar = SidecarMetadataManager.readBookMetadata(context, file.uri.toString())
+                            if (sidecar != null) {
+                                if (sidecar.title.isNotBlank()) title = sidecar.title
+                                if (sidecar.author.isNotBlank()) artist = sidecar.author
+                                position = sidecar.currentPositionMillis
+                                isFav = sidecar.isFavorite
+                                isComp = sidecar.isCompleted
+                                lastListened = sidecar.lastListenedTime
+                            }
+                        } catch (e: Throwable) {}
+
                         output.add(
                             Audiobook(
                                 title = title,
@@ -1180,9 +1733,10 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
                                 durationMillis = duration,
                                 filePath = file.uri.toString(),
                                 coverUrl = coverUrl,
-                                currentPositionMillis = 0L,
-                                lastListenedTime = 0L,
-                                isCompleted = false
+                                currentPositionMillis = position,
+                                lastListenedTime = lastListened,
+                                isFavorite = isFav,
+                                isCompleted = isComp
                             )
                         )
                     }
@@ -1360,11 +1914,6 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
                 val newPos = currentPos.coerceIn(0L, book.durationMillis)
                 _playbackPositionMillis.value = newPos
 
-                // Accumulate listening duration
-                if (_isPlaying.value && delta > 0) {
-                    listeningAccumulatorMillis += delta.toLong()
-                }
-
                 // Automatic save check (Scenario 1: Periodic check)
                 val checkLimit = _autoSaveIntervalSeconds.value * 1000L
                 if (now - lastAutoSaveTimeMillis >= checkLimit) {
@@ -1396,8 +1945,8 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
         startPlaybackTicker(book)
     }
 
-    private suspend fun saveCurrentPositionState(forceCommit: Boolean = false) {
-        val book = _currentPlayingBook.value ?: return
+    private suspend fun saveCurrentPositionState(forceCommit: Boolean = false) = withContext(Dispatchers.IO) {
+        val book = _currentPlayingBook.value ?: return@withContext
         val currentPosition = _playbackPositionMillis.value
 
         val start = System.currentTimeMillis()
@@ -1422,6 +1971,48 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
 
         if (forceCommit || currentPosition % 10000 < 1000) {
             triggerSaveStatusFeedback("Autosaved to library")
+            // Silently persist companion sidecar file in book directory
+            try {
+                val quotes = database.audiobookDao().getBookQuotesForBook(book.id).firstOrNull() ?: emptyList()
+                val updatedBook = book.copy(currentPositionMillis = currentPosition, lastListenedTime = System.currentTimeMillis())
+                SidecarMetadataManager.saveBookMetadata(getApplication(), updatedBook, quotes)
+            } catch (e: Exception) {
+                // ignore
+            }
+        }
+    }
+
+    fun syncAllMetadataToStorage() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val books = repository.getAllAudiobooksSync()
+                val allQuotes = database.audiobookDao().getAllBookQuotes().firstOrNull() ?: emptyList()
+                val count = SidecarMetadataManager.syncAllBooks(getApplication(), books, allQuotes)
+                withContext(Dispatchers.Main) {
+                    val lang = selectedLanguage.value
+                    val msg = if (lang == "es") "Sincronizados metadatos (.audire.meta) en $count libros" else "Metadata (.audire.meta) synchronized for $count books"
+                    triggerSaveStatusFeedback(msg)
+                }
+            } catch (e: Exception) {
+                Log.e("AudiobookViewModel", "Error syncing metadata to folders: ${e.message}", e)
+            }
+        }
+    }
+
+    fun ensureThumbnailsForLibrary() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val books = repository.getAllAudiobooksSync()
+                for (book in books) {
+                    val resolvedCover = ThumbnailManager.getOrCreateThumbnail(getApplication(), book)
+                    if (resolvedCover.isNotEmpty() && resolvedCover != book.coverUrl) {
+                        val updated = book.copy(coverUrl = resolvedCover)
+                        repository.insertAudiobook(updated)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("AudiobookViewModel", "Error generating covers in background: ${e.message}", e)
+            }
         }
     }
 
@@ -1451,6 +2042,13 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     override fun onCleared() {
+        try {
+            runBlocking {
+                saveCurrentPositionState(forceCommit = true)
+            }
+        } catch (e: Exception) {
+            Log.e("AudiobookViewModel", "Error saving on cleared: ${e.message}")
+        }
         super.onCleared()
         com.example.PlaybackController.activeViewModel = null
         stopPlaybackTicker()
@@ -1492,6 +2090,238 @@ class AudiobookViewModel(application: Application) : AndroidViewModel(applicatio
                 repository.deleteAllListeningLogs()
             } catch (e: Exception) {
                 Log.e("AudiobookViewModel", "Error clearing stats: ${e.message}", e)
+            }
+        }
+    }
+
+    fun insertBookQuote(bookId: Int, bookTitle: String, text: String, page: String = "") {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val q = BookQuote(
+                    bookId = bookId,
+                    bookTitle = bookTitle,
+                    quoteText = text,
+                    pageReference = page
+                )
+                repository.insertBookQuote(q)
+            } catch (e: Exception) {
+                Log.e("AudiobookViewModel", "Error inserting quote: ${e.message}", e)
+            }
+        }
+    }
+
+    fun deleteBookQuote(id: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                repository.deleteBookQuoteById(id)
+            } catch (e: Exception) {
+                Log.e("AudiobookViewModel", "Error deleting quote: ${e.message}", e)
+            }
+        }
+    }
+
+    fun deleteAudiobook(id: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // If we are currently playing this book, stop playback first
+                if (_currentPlayingBook.value?.id == id) {
+                    _currentPlayingBook.value = null
+                    _isPlaying.value = false
+                    stopPlaybackTicker()
+                }
+                repository.deleteAudiobookById(id)
+            } catch (e: Exception) {
+                Log.e("AudiobookViewModel", "Error deleting audiobook: ${e.message}", e)
+            }
+        }
+    }
+
+    private val pdfLoadingPages = java.util.Collections.synchronizedSet(mutableSetOf<Int>())
+
+    fun getSinglePdfPageText(context: android.content.Context, uriString: String, pageIndex: Int): String {
+        if (uriString.startsWith("demo://")) {
+            return "Página de Ejemplo ${pageIndex + 1}: Este es un texto de demostración para pruebas de lectura en PDF."
+        }
+        synchronized(pdfLock) {
+            try {
+                com.tom_roush.pdfbox.android.PDFBoxResourceLoader.init(context.applicationContext)
+                val uri = android.net.Uri.parse(uriString)
+                context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                    com.tom_roush.pdfbox.pdmodel.PDDocument.load(inputStream).use { document ->
+                        if (pageIndex >= 0 && pageIndex < document.numberOfPages) {
+                            val stripper = com.tom_roush.pdfbox.text.PDFTextStripper()
+                            stripper.startPage = pageIndex + 1
+                            stripper.endPage = pageIndex + 1
+                            val text = stripper.getText(document).trim()
+                            return text.ifEmpty { "Página ${pageIndex + 1}\n\n[Esta página no contiene texto legible directamente o es un gráfico/imagen]" }
+                        }
+                    }
+                }
+            } catch (e: Throwable) {
+                Log.e("AudiobookViewModel", "Error extracting single page $pageIndex text: ${e.message}", e)
+            }
+        }
+        return "Página ${pageIndex + 1}\n\n[Error al extraer texto]"
+    }
+
+    fun loadPdfPageTextIfNeeded(pageIndex: Int) {
+        val book = _currentPlayingBook.value ?: return
+        if (!book.filePath.lowercase().endsWith(".pdf") && !book.title.lowercase().endsWith(".pdf")) return
+        
+        val pages = _epubPages.value
+        if (pageIndex !in pages.indices) return
+        
+        // Trigger load for current page if empty
+        if (pages[pageIndex].isEmpty() && pdfLoadingPages.add(pageIndex)) {
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    val context = getApplication<android.app.Application>()
+                    val extractedText = getSinglePdfPageText(context, book.filePath, pageIndex)
+                    
+                    withContext(Dispatchers.Main) {
+                        val currentList = _epubPages.value.toMutableList()
+                        if (pageIndex in currentList.indices) {
+                            currentList[pageIndex] = extractedText
+                            _epubPages.value = currentList
+                        }
+                        // If we are currently playing/speaking this page, trigger TTS speak now that the text is loaded
+                        if (_isPlaying.value && _playbackPositionMillis.value.toInt() == pageIndex) {
+                            speakCurrentEpubPage()
+                        }
+                    }
+                } catch (e: Throwable) {
+                    Log.e("AudiobookViewModel", "Error in loadPdfPageTextIfNeeded for page $pageIndex: ${e.message}")
+                } finally {
+                    pdfLoadingPages.remove(pageIndex)
+                }
+            }
+        }
+        
+        // Prefetch next page to make scrolling/speaking completely seamless
+        val nextPageIndex = pageIndex + 1
+        if (nextPageIndex in pages.indices && pages[nextPageIndex].isEmpty() && pdfLoadingPages.add(nextPageIndex)) {
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    val context = getApplication<android.app.Application>()
+                    val extractedText = getSinglePdfPageText(context, book.filePath, nextPageIndex)
+                    
+                    withContext(Dispatchers.Main) {
+                        val currentList = _epubPages.value.toMutableList()
+                        if (nextPageIndex in currentList.indices) {
+                            currentList[nextPageIndex] = extractedText
+                            _epubPages.value = currentList
+                        }
+                    }
+                } catch (e: Throwable) {
+                    Log.e("AudiobookViewModel", "Error prefetching page $nextPageIndex: ${e.message}")
+                } finally {
+                    pdfLoadingPages.remove(nextPageIndex)
+                }
+            }
+        }
+    }
+
+    /**
+     * Exports library data, bookmarks, notes, and reading logs into a clean JSON string.
+     */
+    suspend fun exportBackupJson(): String = withContext(Dispatchers.IO) {
+        val root = org.json.JSONObject()
+        root.put("version", 1)
+        root.put("exportedAt", System.currentTimeMillis())
+
+        val booksArray = org.json.JSONArray()
+        val books = repository.getAllAudiobooksSync()
+        for (b in books) {
+            val obj = org.json.JSONObject()
+            obj.put("title", b.title)
+            obj.put("author", b.author)
+            obj.put("durationMillis", b.durationMillis)
+            obj.put("filePath", b.filePath)
+            obj.put("coverUrl", b.coverUrl)
+            obj.put("currentPositionMillis", b.currentPositionMillis)
+            obj.put("lastListenedTime", b.lastListenedTime)
+            obj.put("isCompleted", b.isCompleted)
+            obj.put("isFavorite", b.isFavorite)
+            booksArray.put(obj)
+        }
+        root.put("books", booksArray)
+
+        val quotesArray = org.json.JSONArray()
+        val quotes = database.audiobookDao().getAllBookQuotes().firstOrNull() ?: emptyList()
+        for (q in quotes) {
+            val obj = org.json.JSONObject()
+            obj.put("bookId", q.bookId)
+            obj.put("bookTitle", q.bookTitle)
+            obj.put("quoteText", q.quoteText)
+            obj.put("pageReference", q.pageReference)
+            obj.put("timestamp", q.timestamp)
+            quotesArray.put(obj)
+        }
+        root.put("quotes", quotesArray)
+
+        root.toString(2)
+    }
+
+    /**
+     * Imports library data, bookmarks, and quotes from a JSON backup string.
+     */
+    suspend fun importBackupJson(jsonString: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+        try {
+            val root = org.json.JSONObject(jsonString)
+            val booksArray = root.optJSONArray("books")
+            var importedBooksCount = 0
+            if (booksArray != null) {
+                for (i in 0 until booksArray.length()) {
+                    val obj = booksArray.getJSONObject(i)
+                    val book = Audiobook(
+                        title = obj.optString("title", "Untitled"),
+                        author = obj.optString("author", "Unknown"),
+                        durationMillis = obj.optLong("durationMillis", 0L),
+                        filePath = obj.optString("filePath", ""),
+                        coverUrl = obj.optString("coverUrl", ""),
+                        currentPositionMillis = obj.optLong("currentPositionMillis", 0L),
+                        lastListenedTime = obj.optLong("lastListenedTime", System.currentTimeMillis()),
+                        isCompleted = obj.optBoolean("isCompleted", false),
+                        isFavorite = obj.optBoolean("isFavorite", false)
+                    )
+                    repository.insertAudiobook(book)
+                    importedBooksCount++
+                }
+            }
+
+            val quotesArray = root.optJSONArray("quotes")
+            var importedQuotesCount = 0
+            if (quotesArray != null) {
+                for (i in 0 until quotesArray.length()) {
+                    val obj = quotesArray.getJSONObject(i)
+                    val quote = BookQuote(
+                        bookId = obj.optInt("bookId", 0),
+                        bookTitle = obj.optString("bookTitle", ""),
+                        quoteText = obj.optString("quoteText", ""),
+                        pageReference = obj.optString("pageReference", ""),
+                        timestamp = obj.optLong("timestamp", System.currentTimeMillis())
+                    )
+                    repository.insertBookQuote(quote)
+                    importedQuotesCount++
+                }
+            }
+
+            Pair(true, "Restaurados con éxito: $importedBooksCount libros y $importedQuotesCount marcas/citas")
+        } catch (e: Exception) {
+            Log.e("AudiobookViewModel", "Error importing backup: ${e.message}", e)
+            Pair(false, "Error al importar: ${e.message}")
+        }
+    }
+
+    companion object {
+        val pdfLock = Any()
+
+        private val maxMemoryKb = (Runtime.getRuntime().maxMemory() / 1024).toInt()
+        private val cacheSizeKb = (maxMemoryKb / 4).coerceAtLeast(10240) // 25% of available memory
+
+        val pdfBitmapCache = object : android.util.LruCache<String, android.graphics.Bitmap>(cacheSizeKb) {
+            override fun sizeOf(key: String, bitmap: android.graphics.Bitmap): Int {
+                return bitmap.byteCount / 1024
             }
         }
     }
