@@ -9,8 +9,8 @@ This directory contains the complete Android source code for **Audire**, built w
 - **Android Studio:** Ladybug / Hedgehog or newer
 - **JDK:** OpenJDK 17 or 11
 - **Android SDK:**
-  - compileSdk: 36 (minorApiLevel = 1)
-  - 	argetSdk: 36
+  - compileSdk: 35 (minorApiLevel = 1)
+  - targetSdk: 35
   - minSdk: 24 (Android 7.0 Nougat)
 - **Gradle Version:** Gradle 8.13+ (configured via Gradle Wrapper)
 
@@ -55,7 +55,7 @@ export KEY_PASSWORD="your-key-password"
 `
 app/src/main/
 ├── AndroidManifest.xml
-├── java/com/example/
+├── java/com/aistudio/sanctuary/audpbk/
 │   ├── MainActivity.kt               # Jetpack Compose single-activity & UI screens
 │   ├── AudiobookPlaybackService.kt   # Foreground Media Service
 │   ├── PlaybackController.kt         # Singleton bridge between Service and ViewModel

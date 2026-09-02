@@ -31,7 +31,7 @@ All file access is conducted through Android's **Storage Access Framework (Scope
 
 ## 3. Local Data Storage & Sidecar Files
 
-- **Room Database:** App state, reading logs, and saved bookmarks are stored in an encrypted/private SQLite database inside the app's internal sandbox (/data/data/com.example/databases/).
+- **Room Database:** App state, reading logs, and saved bookmarks are stored in an encrypted/private SQLite database inside the app's internal sandbox (/data/data/com.aistudio.sanctuary.audpbk/databases/).
 - **Companion Sidecar Metadata (.audire.meta):** When enabled, Audire writes compact, plain-text JSON sidecar files alongside your books in your storage directories to allow portability of progress and quotes. You can delete or edit these files at any time without compromising the app.
 
 ---

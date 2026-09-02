@@ -10,7 +10,7 @@ This document contains everything needed to prepare, package, and submit **Audir
 - [x] **No Proprietary Dependencies:** No Google Play Services, Firebase Analytics, proprietary crash reporters, or closed SDKs.
 - [x] **Zero Tracking & No Anti-Features:** No advertising, no tracking, no paid-only features.
 - [x] **Builds from Source:** All code and assets can be built completely offline using standard Gradle tools.
-- [x] **Standard Fastlane Structure:** Includes astlane/metadata/android/ for automatic ingestion of descriptions and metadata.
+- [x] **Standard Fastlane Structure:** Includes fastlane/metadata/android/ for automatic ingestion of descriptions and metadata.
 
 ---
 
@@ -25,9 +25,9 @@ This document contains everything needed to prepare, package, and submit **Audir
 
 ---
 
-## 3. F-Droid Metadata Recipe Template (droiddata)
+## 3. F-Droid Metadata Recipe Template (fdroiddata)
 
-To submit Audire to the official droiddata repository, create a metadata file named after your pplicationId:
+To submit Audire to the official fdroiddata repository, create a metadata file named after your ApplicationId:
 
 ### File: metadata/com.aistudio.sanctuary.audpbk.yml
 
@@ -63,9 +63,9 @@ RepoType: git
 Repo: https://github.com/danro-dev/Audire.git
 
 Builds:
-  - versionName: '1.0'
-    versionCode: 1
-    commit: v1.0.0
+  - versionName: '1.0.2'
+    versionCode: 2
+    commit: v1.0.2
     subdir: source
     gradle:
       - assembleRelease
@@ -82,24 +82,24 @@ UpdateCheckMode: Tags
 ## 4. How to Submit to F-Droid
 
 1. **Tag a Release:**
-   Ensure a Git release tag exists (e.g. 1.0.0):
-   `ash
-   git tag -a v1.0.0 -m "Release v1.0.0"
-   git push origin v1.0.0
+   Ensure a Git release tag exists (e.g. v1.0.2):
+   `bash
+   git tag -a v1.0.2 -m "Release v1.0.2"
+   git push origin v1.0.2
    `
 
-2. **Fork droiddata:**
+2. **Fork fdroiddata:**
    Go to [https://gitlab.com/fdroid/fdroiddata](https://gitlab.com/fdroid/fdroiddata) and fork the repository.
 
 3. **Add the Recipe:**
    Add metadata/com.aistudio.sanctuary.audpbk.yml (or your chosen application ID) to your fork.
 
-4. **Test the Build with droid build:**
-   `ash
+4. **Test the Build with fdroid build:**
+   `bash
    fdroid checkupdates com.aistudio.sanctuary.audpbk
    fdroid lint com.aistudio.sanctuary.audpbk
    fdroid build -v -s com.aistudio.sanctuary.audpbk
    `
 
 5. **Open a Merge Request:**
-   Submit a Merge Request to droid/fdroiddata on GitLab.
+   Submit a Merge Request to fdroid/fdroiddata on GitLab.
